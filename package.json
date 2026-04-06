@@ -1,0 +1,35 @@
+{
+  "name": "codegenie",
+  "displayName": "CodeGenie",
+  "description": "Cost-aware coding agent with intelligent model routing and per-task budget control.",
+  "version": "0.1.1",
+  "publisher": "codegenie",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Machine Learning"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "codegenie.openChat", "title": "CodeGenie: Open Chat" },
+      { "command": "codegenie.setBudget", "title": "CodeGenie: Set Task Budget" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "codegenie", "title": "CodeGenie", "icon": "$(rocket)" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
