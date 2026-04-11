@@ -1,3 +1,9 @@
+/*
+ *   Copyright (c) 2025 NAME.
+ *   All rights reserved.
+ *   Unauthorized copying, modification, distribution, or use of this is prohibited without express written permission.
+ */
+
 import * as vscode from 'vscode';
 import { BackendClient, ServerEvent } from './backendClient';
 import { BudgetStatusBar } from './budgetStatusBar';
@@ -13,13 +19,15 @@ export class ChatPanel {
       return;
     }
     const panel = vscode.window.createWebviewPanel(
-      'codegenieChat',
-      'CodeGenie',
+      'nexuscodeChat',
+      'NexusCode',
       column ?? vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true }
     );
     ChatPanel.current = new ChatPanel(panel, client, statusBar);
   }
+
+  private unsubscribe?: () => void;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -27,9 +35,12 @@ export class ChatPanel {
     private readonly statusBar: BudgetStatusBar,
   ) {
     panel.webview.html = this.html();
-    panel.onDidDispose(() => { ChatPanel.current = undefined; });
+    panel.onDidDispose(() => {
+      this.unsubscribe?.();
+      ChatPanel.current = undefined;
+    });
 
-    client.onEvent((e: ServerEvent) => {
+    this.unsubscribe = client.onEvent((e: ServerEvent) => {
       this.panel.webview.postMessage(e);
       if (e.type === 'budget') {
         this.statusBar.setSpent(e.spent_usd);
@@ -59,6 +70,8 @@ export class ChatPanel {
   #log { height: calc(100vh - 140px); overflow-y: auto; border: 1px solid var(--vscode-panel-border); padding: 8px; border-radius: 4px; }
   .msg { margin-bottom: 10px; padding: 8px; border-radius: 4px; background: var(--vscode-editor-inactiveSelectionBackground); white-space: pre-wrap; }
   .msg.user { background: var(--vscode-textBlockQuote-background); }
+  .msg.warn { background: rgba(180, 120, 0, 0.15); border-left: 3px solid #d39a1a; }
+  .msg.debug { background: transparent; padding: 2px 8px; opacity: 0.55; font-size: 10px; font-family: var(--vscode-editor-font-family); }
   .meta { font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
   .badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px; margin-right: 6px; }
   .t0 { background: #2d7a2d; color: white; }
@@ -74,7 +87,7 @@ export class ChatPanel {
   <div id="log"></div>
   <div id="row">
     <input id="budget" type="number" step="0.01" value="0.05" title="Budget USD" />
-    <input id="prompt" placeholder="Ask CodeGenie..." />
+    <input id="prompt" placeholder="Ask NexusCode..." />
     <button id="send">Send</button>
   </div>
 <script>
@@ -84,9 +97,9 @@ export class ChatPanel {
   const budget = document.getElementById('budget');
   const send = document.getElementById('send');
 
-  function add(html) {
+  function add(html, extraClass) {
     const div = document.createElement('div');
-    div.className = 'msg';
+    div.className = extraClass ? ('msg ' + extraClass) : 'msg';
     div.innerHTML = html;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
@@ -112,6 +125,18 @@ export class ChatPanel {
     const ev = e.data;
     if (ev.type === 'route') {
       add('<div class="meta">' + tierBadge(ev.tier) + 'route &rarr; ' + escape(ev.provider) + ' &mdash; ' + escape(ev.reason) + '</div>');
+    } else if (ev.type === 'provider_failed') {
+      // Surface provider fallbacks instead of silently showing two consecutive
+      // route cards. This fixes the "two responses on hi" confusion when
+      // MiniMax fails (e.g. insufficient balance) and Gemini picks it up.
+      add('<div class="meta">&#9888; ' + escape(ev.provider) + ' failed &mdash; falling back</div><div class="tool">' + escape(ev.message) + '</div>', 'warn');
+    } else if (ev.type === 'buffer') {
+      // Compact debug row: shows context-optimization metrics per step.
+      // Rendered subtly so it doesn't overwhelm the chat.
+      const comp = ev.raw_tokens_est > 0
+        ? ' (' + Math.round(100 * ev.rendered_tokens_est / ev.raw_tokens_est) + '%)'
+        : '';
+      add('ctx &middot; step ' + ev.step + ' &middot; msgs=' + ev.n_messages + ' &middot; tok: ' + ev.raw_tokens_est + '&rarr;' + ev.rendered_tokens_est + comp + ' &middot; stable=' + ev.stable_prefix_len, 'debug');
     } else if (ev.type === 'assistant') {
       add('<div class="meta">' + tierBadge(ev.tier) + 'assistant &middot; $' + ev.cost.toFixed(5) + '</div>' + escape(ev.text));
     } else if (ev.type === 'tool_call') {
@@ -119,9 +144,13 @@ export class ChatPanel {
     } else if (ev.type === 'tool_result') {
       add('<div class="meta">tool_result</div><div class="tool">' + escape(ev.result) + '</div>');
     } else if (ev.type === 'budget') {
-      add('<div class="meta">budget &middot; $' + ev.spent_usd.toFixed(5) + ' / $' + ev.envelope_usd.toFixed(3) + ' (' + Math.round(ev.fraction_used*100) + '%)</div>');
+      var cacheSuffix = '';
+      if (typeof ev.cache_hit_rate === 'number' && ev.cache_hit_rate > 0) {
+        cacheSuffix = ' &middot; cache ' + Math.round(ev.cache_hit_rate * 100) + '% (saved $' + (ev.cache_saved_usd || 0).toFixed(5) + ')';
+      }
+      add('<div class="meta">budget &middot; $' + ev.spent_usd.toFixed(5) + ' / $' + ev.envelope_usd.toFixed(3) + ' (' + Math.round(ev.fraction_used*100) + '%)' + cacheSuffix + '</div>');
     } else if (ev.type === 'done') {
-      add('<div class="meta">&#10003; done</div>' + escape(ev.final || ''));
+      add('<div class="meta">&#10003; done</div>');
     } else if (ev.type === 'error') {
       add('<div class="meta" style="color:#e06c6c">error</div>' + escape(ev.message));
     }

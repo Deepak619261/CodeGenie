@@ -5,7 +5,9 @@ export type ServerEvent =
   | { type: 'assistant'; text: string; tier: number; cost: number }
   | { type: 'tool_call'; id: string; name: string; args: any }
   | { type: 'tool_result'; id: string; result: string }
-  | { type: 'budget'; envelope_usd: number; spent_usd: number; fraction_used: number; remaining_usd: number; n_calls: number }
+  | { type: 'buffer'; step: number; n_messages: number; raw_tokens_est: number; rendered_tokens_est: number; stable_prefix_len: number }
+  | { type: 'provider_failed'; provider: string; tier: number; message: string }
+  | { type: 'budget'; envelope_usd: number; spent_usd: number; fraction_used: number; remaining_usd: number; n_calls: number; cache_read_tokens?: number; cache_saved_usd?: number; cache_hit_rate?: number }
   | { type: 'done'; final: string }
   | { type: 'error'; message: string };
 
@@ -19,8 +21,15 @@ export class BackendClient {
     this.url = url;
   }
 
-  onEvent(fn: (e: ServerEvent) => void) {
+  /** Subscribe to server events. Returns an unsubscribe function — callers
+   *  (e.g. ChatPanel) MUST call it on dispose, otherwise listeners accumulate
+   *  across panel open/close cycles and events fire against disposed webviews. */
+  onEvent(fn: (e: ServerEvent) => void): () => void {
     this.listeners.push(fn);
+    return () => {
+      const idx = this.listeners.indexOf(fn);
+      if (idx >= 0) this.listeners.splice(idx, 1);
+    };
   }
 
   private async connect(): Promise<void> {
