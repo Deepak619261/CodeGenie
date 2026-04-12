@@ -71,6 +71,12 @@ export class BackendClient {
     this.ws.send(JSON.stringify({ type: 'run', prompt, workspace, budget_usd: budgetUsd }));
   }
 
+  cancel() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'cancel' }));
+    }
+  }
+
   close() {
     this.ws?.close();
     this.ws = undefined;

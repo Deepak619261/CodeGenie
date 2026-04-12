@@ -56,6 +56,11 @@
     "@types/ws": "^8.5.10",
     "typescript": "^5.4.0"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Deepak619261/CodeGenie.git"
+  },
   "dependencies": {
     "ws": "^8.16.0"
   }

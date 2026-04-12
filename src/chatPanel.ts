@@ -1,8 +1,3 @@
-/*
- *   Copyright (c) 2025 NAME.
- *   All rights reserved.
- *   Unauthorized copying, modification, distribution, or use of this is prohibited without express written permission.
- */
 
 import * as vscode from 'vscode';
 import { BackendClient, ServerEvent } from './backendClient';
@@ -56,6 +51,8 @@ export class ChatPanel {
         } catch (err: any) {
           this.panel.webview.postMessage({ type: 'error', message: String(err?.message ?? err) });
         }
+      } else if (msg.type === 'cancel') {
+        client.cancel();
       } else if (msg.type === 'setBudget') {
         ChatPanel.currentBudget = Number(msg.value) || 0.05;
         this.statusBar.setEnvelope(ChatPanel.currentBudget);
@@ -94,6 +91,13 @@ export class ChatPanel {
   .dot-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
   .dot-status.connected { background: #2d7a2d; }
   .dot-status.disconnected { background: #8a2d2d; }
+  #thinkingBar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+  #stopBtn { background: #8a2d2d; color: white; border: 0; padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-left: auto; }
+  #thinkingBar .cat { font-size: 18px; animation: purr 1.2s ease-in-out infinite; }
+  #thinkingBar .dots { display: flex; gap: 4px; align-items: center; }
+  #thinkingBar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-foreground); opacity: 0.4; animation: bounce 1.4s ease-in-out infinite; }
+  #thinkingBar .dot:nth-child(2) { animation-delay: 0.2s; }
+  #thinkingBar .dot:nth-child(3) { animation-delay: 0.4s; }
   .retry-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-top: 6px; }
   #row { display: flex; gap: 6px; margin-top: 8px; }
   #prompt { flex: 1; padding: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; }
@@ -108,7 +112,8 @@ export class ChatPanel {
       <p style="margin-top:12px; font-size:12px; opacity:0.8;">Try: <code>read and explain server.py</code></p>
     </div>
   </div>
-  <div id="status"><span class="dot-status disconnected" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+  <div id="status"><span style="font-size:14px; margin-right:4px;">\ud83d\udc31</span><span class="dot-status disconnected" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+  <div id="thinkingBar" style="display:none;"><span class="cat">\ud83d\udc31</span><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><button id="stopBtn">Stop</button></div>
   <div id="row">
     <input id="budget" type="number" step="0.01" value="0.05" title="Budget USD" />
     <input id="prompt" placeholder="Ask NexusCode..." />
@@ -122,7 +127,14 @@ export class ChatPanel {
   const send = document.getElementById('send');
   const statusDot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
+  const stopBtn = document.getElementById('stopBtn');
   var lastPrompt = '';
+
+  stopBtn.onclick = () => {
+    vscode.postMessage({ type: 'cancel' });
+    removeThinkingNow();
+    add('<div class="meta" style="color:#e0a030">stopped by user</div>');
+  };
 
   function setConnected(ok, text) {
     statusDot.className = 'dot-status ' + (ok ? 'connected' : 'disconnected');
@@ -143,21 +155,16 @@ export class ChatPanel {
   var pendingRemove = false;
   var pendingMessages = [];
 
+  const thinkingBar = document.getElementById('thinkingBar');
+
   function showThinking() {
-    removeThinkingNow();
     pendingRemove = false;
     pendingMessages = [];
-    const div = document.createElement('div');
-    div.className = 'msg thinking';
-    div.id = 'thinking';
-    div.innerHTML = '<span class="cat">\ud83d\udc31</span><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    thinkingBar.style.display = 'flex';
     thinkingShownAt = Date.now();
   }
   function removeThinkingNow() {
-    const el = document.getElementById('thinking');
-    if (el) el.remove();
+    thinkingBar.style.display = 'none';
   }
   function removeThinking() {
     const elapsed = Date.now() - thinkingShownAt;
@@ -241,6 +248,8 @@ export class ChatPanel {
           if (!lastPrompt) return;
           btn.disabled = true;
           btn.textContent = 'Retrying...';
+          // Remove all other retry buttons to prevent spam
+          document.querySelectorAll('.retry-btn').forEach(b => { if (b !== btn) b.remove(); });
           showThinking();
           vscode.postMessage({ type: 'send', prompt: lastPrompt });
         };
