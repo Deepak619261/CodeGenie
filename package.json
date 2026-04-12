@@ -34,6 +34,16 @@
           "icon": "$(rocket)"
         }
       ]
+    },
+    "configuration": {
+      "title": "NeoCode",
+      "properties": {
+        "nexuscode.backendUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:8765/ws",
+          "description": "WebSocket URL of the NexusCode backend server"
+        }
+      }
     }
   },
   "scripts": {

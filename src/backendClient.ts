@@ -9,7 +9,9 @@ export type ServerEvent =
   | { type: 'provider_failed'; provider: string; tier: number; message: string }
   | { type: 'budget'; envelope_usd: number; spent_usd: number; fraction_used: number; remaining_usd: number; n_calls: number; cache_read_tokens?: number; cache_saved_usd?: number; cache_hit_rate?: number }
   | { type: 'done'; final: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: '_connected' }
+  | { type: '_disconnected'; reason: string };
 
 export class BackendClient {
   private ws?: WebSocket;
@@ -37,15 +39,28 @@ export class BackendClient {
     if (this.connecting) return this.connecting;
     this.connecting = new Promise((resolve, reject) => {
       const ws = new WebSocket(this.url);
-      ws.on('open', () => { this.ws = ws; resolve(); });
-      ws.on('error', (err) => reject(err));
+      const timer = setTimeout(() => {
+        ws.terminate();
+        for (const fn of this.listeners) fn({ type: '_disconnected', reason: 'timed out' } as ServerEvent);
+        reject(new Error('Connection timed out — is the backend running?'));
+      }, 10_000);
+      ws.on('open', () => {
+        clearTimeout(timer);
+        this.ws = ws;
+        for (const fn of this.listeners) fn({ type: '_connected' } as ServerEvent);
+        resolve();
+      });
+      ws.on('error', (err) => { clearTimeout(timer); reject(err); });
       ws.on('message', (data) => {
         try {
           const ev = JSON.parse(data.toString()) as ServerEvent;
           for (const fn of this.listeners) fn(ev);
         } catch { /* ignore */ }
       });
-      ws.on('close', () => { this.ws = undefined; });
+      ws.on('close', () => {
+        this.ws = undefined;
+        for (const fn of this.listeners) fn({ type: '_disconnected', reason: 'connection closed' } as ServerEvent);
+      });
     });
     try { await this.connecting; } finally { this.connecting = undefined; }
   }

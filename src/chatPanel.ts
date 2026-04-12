@@ -78,13 +78,37 @@ export class ChatPanel {
   .t1 { background: #2d5d8a; color: white; }
   .t2 { background: #8a2d2d; color: white; }
   .tool { font-family: var(--vscode-editor-font-family); font-size: 12px; opacity: 0.85; }
+  .thinking { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+  .thinking .cat { font-size: 20px; animation: purr 1.2s ease-in-out infinite; }
+  @keyframes purr { 0%,100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.1) rotate(-3deg); } }
+  .thinking .dots { display: flex; gap: 4px; align-items: center; }
+  .thinking .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-foreground); opacity: 0.4; animation: bounce 1.4s ease-in-out infinite; }
+  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,80%,100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }
+  #welcome { text-align: center; padding: 40px 20px; opacity: 0.7; }
+  #welcome h2 { font-size: 18px; margin-bottom: 8px; }
+  #welcome p { font-size: 13px; margin: 4px 0; }
+  #welcome code { background: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+  #status { font-size: 11px; padding: 4px 8px; text-align: right; opacity: 0.6; }
+  .dot-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .dot-status.connected { background: #2d7a2d; }
+  .dot-status.disconnected { background: #8a2d2d; }
+  .retry-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-top: 6px; }
   #row { display: flex; gap: 6px; margin-top: 8px; }
   #prompt { flex: 1; padding: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; }
   #budget { width: 70px; padding: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; }
   button { padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 0; border-radius: 4px; cursor: pointer; }
 </style></head>
 <body>
-  <div id="log"></div>
+  <div id="log">
+    <div id="welcome">
+      <h2>NexusCode</h2>
+      <p>Cost-aware coding agent</p>
+      <p style="margin-top:12px; font-size:12px; opacity:0.8;">Try: <code>read and explain server.py</code></p>
+    </div>
+  </div>
+  <div id="status"><span class="dot-status disconnected" id="statusDot"></span><span id="statusText">Connecting...</span></div>
   <div id="row">
     <input id="budget" type="number" step="0.01" value="0.05" title="Budget USD" />
     <input id="prompt" placeholder="Ask NexusCode..." />
@@ -96,6 +120,14 @@ export class ChatPanel {
   const prompt = document.getElementById('prompt');
   const budget = document.getElementById('budget');
   const send = document.getElementById('send');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  var lastPrompt = '';
+
+  function setConnected(ok, text) {
+    statusDot.className = 'dot-status ' + (ok ? 'connected' : 'disconnected');
+    statusText.textContent = text;
+  }
 
   function add(html, extraClass) {
     const div = document.createElement('div');
@@ -107,29 +139,78 @@ export class ChatPanel {
   function escape(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
   function tierBadge(t) { return '<span class="badge t' + t + '">T' + t + '</span>'; }
 
+  var thinkingShownAt = 0;
+  var pendingRemove = false;
+  var pendingMessages = [];
+
+  function showThinking() {
+    removeThinkingNow();
+    pendingRemove = false;
+    pendingMessages = [];
+    const div = document.createElement('div');
+    div.className = 'msg thinking';
+    div.id = 'thinking';
+    div.innerHTML = '<span class="cat">\ud83d\udc31</span><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    thinkingShownAt = Date.now();
+  }
+  function removeThinkingNow() {
+    const el = document.getElementById('thinking');
+    if (el) el.remove();
+  }
+  function removeThinking() {
+    const elapsed = Date.now() - thinkingShownAt;
+    const MIN_SHOW = 600;
+    if (elapsed >= MIN_SHOW) {
+      removeThinkingNow();
+      return true;
+    }
+    if (!pendingRemove) {
+      pendingRemove = true;
+      setTimeout(() => {
+        removeThinkingNow();
+        pendingMessages.forEach(fn => fn());
+        pendingMessages = [];
+        pendingRemove = false;
+      }, MIN_SHOW - elapsed);
+    }
+    return false;
+  }
+
   send.onclick = () => {
     const text = prompt.value.trim();
     if (!text) return;
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
     const b = Number(budget.value) || 0.05;
     vscode.postMessage({ type: 'setBudget', value: b });
     const div = document.createElement('div');
     div.className = 'msg user';
     div.textContent = text;
     log.appendChild(div);
+    lastPrompt = text;
     vscode.postMessage({ type: 'send', prompt: text });
     prompt.value = '';
+    showThinking();
   };
   prompt.addEventListener('keydown', e => { if (e.key === 'Enter') send.click(); });
 
-  window.addEventListener('message', e => {
-    const ev = e.data;
+  function renderEvent(ev) {
+    if (ev.type === '_connected') {
+      setConnected(true, 'Connected');
+      return;
+    } else if (ev.type === '_disconnected') {
+      setConnected(false, 'Disconnected \u2014 ' + ev.reason);
+      return;
+    }
     if (ev.type === 'route') {
       add('<div class="meta">' + tierBadge(ev.tier) + 'route &rarr; ' + escape(ev.provider) + ' &mdash; ' + escape(ev.reason) + '</div>');
     } else if (ev.type === 'provider_failed') {
       // Surface provider fallbacks instead of silently showing two consecutive
       // route cards. This fixes the "two responses on hi" confusion when
       // MiniMax fails (e.g. insufficient balance) and Gemini picks it up.
-      add('<div class="meta">&#9888; ' + escape(ev.provider) + ' failed &mdash; falling back</div><div class="tool">' + escape(ev.message) + '</div>', 'warn');
+      add('<div class="meta">\ud83d\ude3f ' + escape(ev.provider) + ' failed &mdash; falling back</div><div class="tool">' + escape(ev.message) + '</div>', 'warn');
     } else if (ev.type === 'buffer') {
       // Compact debug row: shows context-optimization metrics per step.
       // Rendered subtly so it doesn't overwhelm the chat.
@@ -152,8 +233,32 @@ export class ChatPanel {
     } else if (ev.type === 'done') {
       add('<div class="meta">&#10003; done</div>');
     } else if (ev.type === 'error') {
-      add('<div class="meta" style="color:#e06c6c">error</div>' + escape(ev.message));
+      const retryId = 'retry-' + Date.now();
+      add('<div class="meta" style="color:#e06c6c">error</div>' + escape(ev.message) + '<br><button class="retry-btn" id="' + retryId + '">Retry</button>');
+      setTimeout(() => {
+        const btn = document.getElementById(retryId);
+        if (btn) btn.onclick = () => {
+          if (!lastPrompt) return;
+          btn.disabled = true;
+          btn.textContent = 'Retrying...';
+          showThinking();
+          vscode.postMessage({ type: 'send', prompt: lastPrompt });
+        };
+      }, 0);
     }
+  }
+
+  window.addEventListener('message', e => {
+    const ev = e.data;
+    const isEnd = ev.type === 'assistant' || ev.type === 'done' || ev.type === 'error';
+    if (isEnd) {
+      const removed = removeThinking();
+      if (!removed) {
+        pendingMessages.push(() => renderEvent(ev));
+        return;
+      }
+    }
+    renderEvent(ev);
   });
 </script>
 </body></html>`;

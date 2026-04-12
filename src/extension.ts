@@ -16,7 +16,8 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar = new BudgetStatusBar();
   context.subscriptions.push(statusBar);
 
-  client = new BackendClient('ws://127.0.0.1:8765/ws');
+  const url = vscode.workspace.getConfiguration('nexuscode').get<string>('backendUrl', 'ws://127.0.0.1:8765/ws');
+  client = new BackendClient(url);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('nexuscode.openChat', () => {
